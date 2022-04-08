@@ -57,5 +57,6 @@
 	<classpathentry kind="lib" path="D:/performance/zippedExtLibs/x64_geckodriver_0_21.zip"/>
 	<classpathentry kind="lib" path="D:/performance/zippedExtLibs/x64_geckodriver.zip"/>
 	<classpathentry kind="lib" path="D:/performance/zippedExtLibs/x64_IEDriverServer.zip"/>
+	<classpathentry kind="lib" path="D:/test/zippedExtLibs/RPTKHelpers.zip"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
