@@ -1,0 +1,210 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  creationTimestamp: null
+  labels:
+    cluster_id: 514ae1e4-6c3c-48f5-8619-fee415425129
+    subject: custom-workflow-1649772436_litmus
+    workflow_id: 76a29a72-e7f7-4a49-8444-6a072d29c2d1
+    workflows.argoproj.io/controller-instanceid: 514ae1e4-6c3c-48f5-8619-fee415425129
+  name: custom-workflow-1649772436
+  namespace: litmus
+spec:
+  arguments:
+    parameters:
+    - name: TARGET_PODS
+      value: ""
+    - name: APP_NAME_SPACE
+      value: k5com
+    - name: APP_LABEL
+      value: app.kubernetes.io/instance=k5com
+    - name: APP_PUBLIC_IP
+      value: 34.86.91.58
+    - name: SEQUENCE
+      value: parallel
+    - name: adminModeNamespace
+      value: litmus
+  entrypoint: custom-chaos
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+  serviceAccountName: argo-chaos
+  templates:
+  - inputs: {}
+    metadata: {}
+    name: custom-chaos
+    outputs: {}
+    steps:
+    - - arguments: {}
+        name: install-chaos-experiments
+        template: install-chaos-experiments
+    - - arguments: {}
+        name: pod-delete
+        template: pod-delete
+  - container:
+      args:
+      - kubectl apply -f /tmp/pod-delete.yaml -n {{workflow.parameters.adminModeNamespace}}
+        |  sleep 30
+      command:
+      - sh
+      - -c
+      image: litmuschaos/k8s:latest
+      name: ""
+      resources: {}
+    inputs:
+      artifacts:
+      - name: pod-delete
+        path: /tmp/pod-delete.yaml
+        raw:
+          data: |
+            apiVersion: litmuschaos.io/v1alpha1
+            description:
+              message: |
+                Deletes a pod belonging to a deployment/statefulset/daemonset
+            kind: ChaosExperiment
+            metadata:
+              name: pod-delete
+              labels:
+                name: pod-delete
+                app.kubernetes.io/part-of: litmus
+                app.kubernetes.io/component: chaosexperiment
+                app.kubernetes.io/version: 2.1.1
+            spec:
+              definition:
+                scope: Namespaced
+                permissions:
+                  - apiGroups:
+                      - ""
+                      - apps
+                      - apps.openshift.io
+                      - argoproj.io
+                      - batch
+                      - litmuschaos.io
+                    resources:
+                      - deployments
+                      - jobs
+                      - pods
+                      - pods/log
+                      - replicationcontrollers
+                      - deployments
+                      - statefulsets
+                      - daemonsets
+                      - replicasets
+                      - deploymentconfigs
+                      - rollouts
+                      - pods/exec
+                      - events
+                      - chaosengines
+                      - chaosexperiments
+                      - chaosresults
+                    verbs:
+                      - create
+                      - list
+                      - get
+                      - patch
+                      - update
+                      - delete
+                      - deletecollection
+                image: litmuschaos/go-runner:2.1.1
+                imagePullPolicy: Always
+                args:
+                  - -c
+                  - ./experiments -name pod-delete
+                command:
+                  - /bin/bash
+                env:
+                  - name: TOTAL_CHAOS_DURATION
+                    value: "50"
+                  - name: RAMP_TIME
+                    value: ""
+                  - name: FORCE
+                    value: "true"
+                  - name: CHAOS_INTERVAL
+                    value: "30"
+                  - name: PODS_AFFECTED_PERC
+                    value: "100"
+                  - name: LIB
+                    value: litmus
+                  - name: TARGET_PODS
+                    value: "{{workflow.parameters.TARGET_PODS}}"
+                  - name: SEQUENCE
+                    value: parallel
+                labels:
+                  name: pod-delete
+                  app.kubernetes.io/part-of: litmus
+                  app.kubernetes.io/component: experiment-job
+                  app.kubernetes.io/version: 2.1.1
+    metadata: {}
+    name: install-chaos-experiments
+    outputs: {}
+  - container:
+      args:
+      - -file=/tmp/chaosengine-pod-delete.yaml
+      - -saveName=/tmp/engine-name
+      image: litmuschaos/litmus-checker:latest
+      name: ""
+      resources: {}
+    inputs:
+      artifacts:
+      - name: pod-delete
+        path: /tmp/chaosengine-pod-delete.yaml
+        raw:
+          data: |
+            apiVersion: litmuschaos.io/v1alpha1
+            kind: ChaosEngine
+            metadata:
+              namespace: "{{workflow.parameters.adminModeNamespace}}"
+              generateName: pod-delete
+              labels:
+                instance_id: 51a4d2bd-ab00-4bc4-8075-2ab7b3b976ed
+                context: pod-delete_litmus
+                workflow_name: custom-workflow-1649772436
+            spec:
+              appinfo:
+                appns: "{{workflow.parameters.APP_NAME_SPACE}}"
+                applabel: "{{workflow.parameters.APP_LABEL}}"
+                appkind: ""
+              jobCleanUpPolicy: retain
+              engineState: active
+              chaosServiceAccount: litmus-admin
+              experiments:
+                - name: pod-delete
+                  spec:
+                    components:
+                      env:
+                        - name: TOTAL_CHAOS_DURATION
+                          value: "400"
+                        - name: CHAOS_INTERVAL
+                          value: "400"
+                        - name: FORCE
+                          value: "false"
+                        - name: PODS_AFFECTED_PERC
+                          value: "100"
+                        - name: SEQUENCE
+                          value: "{{workflow.parameters.SEQUENCE}}"
+                    probe:
+                      - name: bvt-endpoint-after-chaos
+                        type: cmdProbe
+                        mode: EOT
+                        runProperties:
+                          probeTimeout: 120
+                          retry: 3
+                          interval: 30
+                          stopOnFailure: false
+                        cmdProbe/inputs:
+                          command: ./testsuite.sh 34.145.216.151
+                          source:
+                            image: gcr.io/blackjack-209019/services/commerce/commercept:1.0
+                          comparator:
+                            type: string
+                            criteria: contains
+                            value: "201"
+              annotationCheck: "false"
+    metadata:
+      labels:
+        weight: "10"
+    name: pod-delete
+    outputs: {}
+status:
+  finishedAt: null
+  startedAt: null
