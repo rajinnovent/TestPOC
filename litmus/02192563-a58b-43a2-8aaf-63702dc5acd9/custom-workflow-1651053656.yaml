@@ -1,0 +1,277 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  creationTimestamp: null
+  labels:
+    cluster_id: d70a626a-e678-42b8-a7f4-72988427c6fd
+    subject: custom-workflow-1651053656_litmusk3
+    workflow_id: 9f732e21-9087-4e75-b083-52613a2a82aa
+    workflows.argoproj.io/controller-instanceid: d70a626a-e678-42b8-a7f4-72988427c6fd
+  name: custom-workflow-1651053656
+  namespace: litmusk3
+spec:
+  arguments:
+    parameters:
+    - name: TARGET_NODE
+      value: gke-litmusnodedraincluster-node2-7a598393-kgjw
+    - name: DESTINATION_NODE
+      value: gke-litmusnodedraincluster-node3-ff9085e5-pfz1
+    - name: APP_NAMESPACE
+      value: otsk
+    - name: APP_LABEL
+      value: app.kubernetes.io/instance=otsk
+    - name: TOTAL_CHAOS_DURATION
+      value: "180"
+    - name: adminModeNamespace
+      value: litmusk3
+    - name: EXTRA_UNCORDON_DELAY
+      value: "30"
+  entrypoint: custom-chaos
+  nodeSelector:
+    chaos: "true"
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+  serviceAccountName: argo-chaos
+  templates:
+  - inputs: {}
+    metadata: {}
+    name: custom-chaos
+    outputs: {}
+    steps:
+    - - arguments: {}
+        name: install-chaos-experiments
+        template: install-chaos-experiments
+    - - arguments: {}
+        name: cordon-destination-node
+        template: cordon-destination-node
+    - - arguments: {}
+        name: node-drain
+        template: node-drain
+      - arguments: {}
+        name: uncordon-destination-node
+        template: uncordon-destination-node
+  - inputs: {}
+    metadata: {}
+    name: cordon-destination-node
+    outputs: {}
+    podSpecPatch: '{"serviceAccountName": "node-chaos"}'
+    script:
+      command:
+      - sh
+      env:
+      - name: DESTINATION_NODE
+        value: '{{workflow.parameters.DESTINATION_NODE}}'
+      image: litmuschaos/k8s:latest
+      name: ""
+      resources: {}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+      source: |
+        #!/bin/sh
+        set -euxo pipefail
+        kubectl cordon $DESTINATION_NODE
+  - inputs:
+      artifacts:
+      - name: node-drain
+        path: /tmp/node-drain.yaml
+        raw:
+          data: |
+            apiVersion: litmuschaos.io/v1alpha1
+            description:
+              message: |
+                Drain the node where application pod is scheduled
+            kind: ChaosExperiment
+            metadata:
+              name: node-drain
+              labels:
+                name: node-drain
+                app.kubernetes.io/part-of: litmus
+                app.kubernetes.io/component: chaosexperiment
+                app.kubernetes.io/version: 2.7.0
+            spec:
+              definition:
+                scope: Cluster
+                permissions:
+                  - apiGroups:
+                      - ""
+                      - batch
+                      - litmuschaos.io
+                      - apps
+                    resources:
+                      - jobs
+                      - pods
+                      - events
+                      - pods/log
+                      - pods/exec
+                      - daemonsets
+                      - pods/eviction
+                      - chaosengines
+                      - chaosexperiments
+                      - chaosresults
+                    verbs:
+                      - create
+                      - list
+                      - get
+                      - patch
+                      - update
+                      - delete
+                      - deletecollection
+                  - apiGroups:
+                      - ""
+                    resources:
+                      - nodes
+                    verbs:
+                      - get
+                      - list
+                      - patch
+                image: litmuschaos/go-runner:2.7.0
+                imagePullPolicy: Always
+                args:
+                  - -c
+                  - ./experiments -name node-drain
+                command:
+                  - /bin/bash
+                env:
+                  - name: TARGET_NODE
+                    value: ""
+                  - name: NODE_LABEL
+                    value: ""
+                  - name: TOTAL_CHAOS_DURATION
+                    value: "600"
+                  - name: LIB
+                    value: litmus
+                  - name: RAMP_TIME
+                    value: ""
+                labels:
+                  name: node-drain
+                  app.kubernetes.io/part-of: litmus
+                  app.kubernetes.io/component: experiment-job
+                  app.kubernetes.io/version: 2.7.0
+    metadata: {}
+    name: install-chaos-experiments
+    outputs: {}
+    script:
+      command:
+      - sh
+      image: litmuschaos/k8s:latest
+      name: ""
+      resources: {}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+      source: |
+        #!/bin/sh
+        set -euxo pipefail
+        kubectl apply -f /tmp/node-drain.yaml -n {{workflow.parameters.adminModeNamespace}} | sleep 5
+  - inputs: {}
+    metadata: {}
+    name: uncordon-destination-node
+    outputs: {}
+    podSpecPatch: '{"serviceAccountName": "node-chaos"}'
+    script:
+      command:
+      - sh
+      env:
+      - name: TARGET_NODE
+        value: '{{workflow.parameters.TARGET_NODE}}'
+      - name: DESTINATION_NODE
+        value: '{{workflow.parameters.DESTINATION_NODE}}'
+      - name: APP_NAMESPACE
+        value: '{{workflow.parameters.APP_NAMESPACE}}'
+      - name: EXTRA_UNCORDON_DELAY
+        value: '{{workflow.parameters.EXTRA_UNCORDON_DELAY}}'
+      image: litmuschaos/k8s:latest
+      name: ""
+      resources: {}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+      source: |
+        #!/bin/sh
+        set -euo pipefail
+        remaining="$(kubectl get pods --field-selector spec.nodeName=$TARGET_NODE --namespace $APP_NAMESPACE --output custom-columns=':metadata.name' 2>/dev/null | wc -w | xargs echo -n)"
+        until [ "$remaining" -eq 0 ]; do
+          echo "Waiting for $remaining application pods to be evicted from the target node"
+          sleep 5
+          remaining="$(kubectl get pods --field-selector spec.nodeName=$TARGET_NODE --namespace $APP_NAMESPACE --output custom-columns=':metadata.name' 2>/dev/null | wc -w | xargs echo -n)"
+        done
+        echo "All application pods evicted from target node, waiting an additional ${EXTRA_UNCORDON_DELAY}s"
+        sleep $EXTRA_UNCORDON_DELAY
+        echo "Uncordoning node $DESTINATION_NODE"
+        kubectl uncordon $DESTINATION_NODE
+  - container:
+      args:
+      - -file=/tmp/chaosengine-node-drain.yaml
+      - -saveName=/tmp/engine-name
+      image: litmuschaos/litmus-checker:latest
+      name: ""
+      resources: {}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+    inputs:
+      artifacts:
+      - name: node-drain
+        path: /tmp/chaosengine-node-drain.yaml
+        raw:
+          data: |
+            apiVersion: litmuschaos.io/v1alpha1
+            kind: ChaosEngine
+            metadata:
+              namespace: "{{workflow.parameters.adminModeNamespace}}"
+              generateName: node-drain
+              labels:
+                workflow_name: custom-workflow-1651053656
+            spec:
+              jobCleanUpPolicy: retain
+              engineState: active
+              auxiliaryAppInfo: ""
+              chaosServiceAccount: litmus-admin
+              components:
+                runner:
+                  nodeSelector:
+                    chaos: "true"
+                  tolerations:
+                    - key: chaos
+                      operator: Equal
+                      value: "true"
+                      effect: NoSchedule
+              experiments:
+                - name: node-drain
+                  spec:
+                    components:
+                      nodeSelector:
+                        chaos: "true"
+                      tolerations:
+                        - key: chaos
+                          operator: Equal
+                          value: "true"
+                          effect: NoSchedule
+                      env:
+                        - name: TARGET_NODE
+                          value: "{{workflow.parameters.TARGET_NODE}}"
+                        - name: APP_NAMESPACE
+                          value: "{{workflow.parameters.APP_NAMESPACE}}"
+                        - name: APP_LABEL
+                          value: "{{workflow.parameters.APP_LABEL}}"
+                        - name: TOTAL_CHAOS_DURATION
+                          value: "{{workflow.parameters.TOTAL_CHAOS_DURATION}}"
+                      statusCheckTimeouts:
+                        delay: 2
+                        timeout: 2700
+              annotationCheck: "false"
+    metadata:
+      labels:
+        weight: "10"
+    name: node-drain
+    outputs: {}
+  tolerations:
+  - effect: NoSchedule
+    key: chaos
+    operator: Equal
+    value: "true"
+status:
+  finishedAt: null
+  startedAt: null
