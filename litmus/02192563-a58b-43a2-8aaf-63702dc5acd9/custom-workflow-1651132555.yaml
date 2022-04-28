@@ -1,0 +1,208 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  creationTimestamp: null
+  labels:
+    cluster_id: d70a626a-e678-42b8-a7f4-72988427c6fd
+    subject: custom-workflow-1651132555_litmusk3
+    workflow_id: 761e0a08-1648-4b67-bc14-b86142cb7a60
+    workflows.argoproj.io/controller-instanceid: d70a626a-e678-42b8-a7f4-72988427c6fd
+  name: custom-workflow-1651132555
+  namespace: litmusk3
+spec:
+  arguments:
+    parameters:
+    - name: TARGET_NODE
+      value: gke-litmusnodedraincluster-node2-7a598393-kgjw
+    - name: APP_PUBLIC_IP
+      value: 34.150.169.200
+    - name: APP_NAMESPACE
+      value: ots
+    - name: APP_LABEL
+      value: app.kubernetes.io/instance=ots
+    - name: TOTAL_CHAOS_DURATION
+      value: "180"
+    - name: adminModeNamespace
+      value: litmusk3
+  entrypoint: custom-chaos
+  nodeSelector:
+    chaos: "true"
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+  serviceAccountName: argo-chaos
+  templates:
+  - inputs: {}
+    metadata: {}
+    name: custom-chaos
+    outputs: {}
+    steps:
+    - - arguments: {}
+        name: install-chaos-experiments
+        template: install-chaos-experiments
+    - - arguments: {}
+        name: node-drain
+        template: node-drain
+  - container:
+      args:
+      - kubectl apply -f /tmp/node-drain.yaml -n {{workflow.parameters.adminModeNamespace}}
+        |  sleep 30
+      command:
+      - sh
+      - -c
+      image: litmuschaos/k8s:latest
+      name: ""
+      resources: {}
+    inputs:
+      artifacts:
+      - name: node-drain
+        path: /tmp/node-drain.yaml
+        raw:
+          data: |
+            apiVersion: litmuschaos.io/v1alpha1
+            description:
+              message: |
+                Drain the node where application pod is scheduled
+            kind: ChaosExperiment
+            metadata:
+              name: node-drain
+              labels:
+                name: node-drain
+                app.kubernetes.io/part-of: litmus
+                app.kubernetes.io/component: chaosexperiment
+                app.kubernetes.io/version: 2.7.0
+            spec:
+              definition:
+                scope: Cluster
+                permissions:
+                  - apiGroups:
+                      - ""
+                      - batch
+                      - litmuschaos.io
+                      - apps
+                    resources:
+                      - jobs
+                      - pods
+                      - events
+                      - pods/log
+                      - pods/exec
+                      - daemonsets
+                      - pods/eviction
+                      - chaosengines
+                      - chaosexperiments
+                      - chaosresults
+                    verbs:
+                      - create
+                      - list
+                      - get
+                      - patch
+                      - update
+                      - delete
+                      - deletecollection
+                  - apiGroups:
+                      - ""
+                    resources:
+                      - nodes
+                    verbs:
+                      - get
+                      - list
+                      - patch
+                image: litmuschaos/go-runner:2.7.0
+                imagePullPolicy: Always
+                args:
+                  - -c
+                  - ./experiments -name node-drain
+                command:
+                  - /bin/bash
+                env:
+                  - name: TARGET_NODE
+                    value: ""
+                  - name: NODE_LABEL
+                    value: ""
+                  - name: TOTAL_CHAOS_DURATION
+                    value: "600"
+                  - name: LIB
+                    value: litmus
+                  - name: RAMP_TIME
+                    value: ""
+                labels:
+                  name: node-drain
+                  app.kubernetes.io/part-of: litmus
+                  app.kubernetes.io/component: experiment-job
+                  app.kubernetes.io/version: 2.7.0
+    metadata: {}
+    name: install-chaos-experiments
+    outputs: {}
+  - container:
+      args:
+      - -file=/tmp/chaosengine-node-drain.yaml
+      - -saveName=/tmp/engine-name
+      image: litmuschaos/litmus-checker:latest
+      name: ""
+      resources: {}
+    inputs:
+      artifacts:
+      - name: node-drain
+        path: /tmp/chaosengine-node-drain.yaml
+        raw:
+          data: |
+            apiVersion: litmuschaos.io/v1alpha1
+            kind: ChaosEngine
+            metadata:
+              namespace: "{{workflow.parameters.adminModeNamespace}}"
+              generateName: node-drain
+              labels:
+                instance_id: 16ece9d3-7f3e-4d26-af85-5a720ffb62be
+                context: node-drain_litmus
+                workflow_name: custom-workflow-1651132555
+            spec:
+              jobCleanUpPolicy: retain
+              engineState: active
+              auxiliaryAppInfo: ""
+              chaosServiceAccount: litmus-admin
+              components:
+                runner:
+                  nodeSelector:
+                    chaos: "true"
+                  tolerations:
+                    - key: chaos
+                      operator: Equal
+                      value: "true"
+                      effect: NoSchedule
+              experiments:
+                - name: node-drain
+                  spec:
+                    components:
+                      nodeSelector:
+                        chaos: "true"
+                      tolerations:
+                        - key: chaos
+                          operator: Equal
+                          value: "true"
+                          effect: NoSchedule
+                      env:
+                        - name: TARGET_NODE
+                          value: "{{workflow.parameters.TARGET_NODE}}"
+                        - name: APP_NAMESPACE
+                          value: "{{workflow.parameters.APP_NAMESPACE}}"
+                        - name: APP_LABEL
+                          value: "{{workflow.parameters.APP_LABEL}}"
+                        - name: TOTAL_CHAOS_DURATION
+                          value: "{{workflow.parameters.TOTAL_CHAOS_DURATION}}"
+                      statusCheckTimeouts:
+                        delay: 2
+                        timeout: 900
+              annotationCheck: "false"
+    metadata:
+      labels:
+        weight: "10"
+    name: node-drain
+    outputs: {}
+  tolerations:
+  - effect: NoSchedule
+    key: chaos
+    operator: Equal
+    value: "true"
+status:
+  finishedAt: null
+  startedAt: null
