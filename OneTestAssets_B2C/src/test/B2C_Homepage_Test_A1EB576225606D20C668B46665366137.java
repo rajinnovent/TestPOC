@@ -160,7 +160,7 @@ this.addEventBehavior(new RPTEventStructure(new HTTPPageTitleVPEvent(), new RPTC
 	private VariableAction varAction_1(final IContainer parent) {
 
 	VariableAction vc = new VariableAction(parent, "", "A1EAFEBC934A53AEE67DE33837373664");	
-			vars[0] = new DataVar("hostname", "commerce-preview.34.85.166.57.nip.io", IDataArea.VIRTUALUSER, "IGNORE", false, false);
+			vars[0] = new DataVar("hostname", "commerce-preview.34.145.186.240.nip.io", IDataArea.VIRTUALUSER, "IGNORE", false, false);
 
 	
 		vars[1] = new DataVar("store_id", "11", IDataArea.VIRTUALUSER, "IGNORE", false, false);
